@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Ipo Checker</title>
+    <style>
+        .outer-boid-group {
+            border: 2px solid black;
+            padding: 0.75rem;
+            margin: 1rem;
+        }
+
+        .boid-group {
+            display: flex;
+            /* justify-content: center; */
+            font-size: 1.5rem;
+        }
+
+        .boid-group img {
+            align-self: flex-start;
+        }
+
+        button {
+            margin: 0.25rem;
+            padding: 0.5rem;
+            font-size: 1.5rem;
+        }
+
+        .success-message {
+            color: green;
+            font-size: 2rem;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="boid-container">
+        <div>
+            <textarea label="BOIDs" rows="5" cols="40" resize="false" name="boid" id="boid"></textarea>
+            <button id="update-storage">Store Boid</button>
+        </div>
+        <select name="company" id="companies">
+            <option disabled> select a company</option>
+        </select>
+        <br>
+        <button id="check-result"> Check Result</button>
+    </div>
+    <br />
+    <h3>Fill Captcha to check IPO</h3>
+    <div id="captcha-container">
+
+    </div>
+
+    <script>
+        const textarea = document.getElementById("boid")
+        document.getElementById("check-result").addEventListener("click", e => { fetchCaptchas() })
+        document.getElementById("update-storage").addEventListener("click", e => { updateLocalStorage() })
+        const companiesEl = document.getElementById("companies")
+        const captchasEl = document.getElementById("captcha-container")
+
+        async function fetchCaptchas() {
+            const boids = getBoids();
+            console.log({ boids })
+            if (boids.length === 0)
+                return;
+            const company = companiesEl.value;
+            const promises = boids.map(fetchCaptcha);
+
+            try {
+                captchas = await Promise.all(promises);
+
+                const fragment = document.createDocumentFragment();
+                for (const [index, _captcha] of captchas.entries()) {
+                    const boid = boids[index];
+                    const { captcha, captchaIdentifier } = _captcha.body.captchaData;
+                    // const captcha = _captcha.body.captchaData;
+
+                    const currContainer = document.createElement("div")
+                    currContainer.classList.add("boid-group")
+                    currContainer.classList.add(boid)
+
+                    const boidEl = document.createElement("div")
+                    boidEl.innerText = boid;
+                    currContainer.appendChild(boidEl);
+
+                    const captchaImage = document.createElement("img");
+                    captchaImage.id = captchaIdentifier;
+                    captchaImage.src = `data:image/png;base64,${captcha}`;
+                    currContainer.appendChild(captchaImage);
+
+                    // Create the form element
+                    const form = document.createElement("form");
+                    form.classList.add("captcha-form")
+                    form.setAttribute("data-boid", boid)
+                    form.setAttribute("data-captchaidentifier", captchaIdentifier)
+                    form.addEventListener("submit", handleFormSubmit)
+
+                    // Create the label element
+                    const input = document.createElement("input");
+                    input.type = "text";
+                    input.name = "userCaptcha";
+                    input.required = true;
+
+
+                    // Create the button element
+                    const button = document.createElement("button");
+                    button.type = "submit";
+                    button.textContent = "check";
+
+                    // Append label, input, and button to the form
+                    form.appendChild(input);
+                    form.appendChild(button);
+
+                    // Append the form to the body of the document
+                    currContainer.appendChild(form);
+
+                    const outerContainer = document.createElement("div")
+                    outerContainer.classList.add("outer-boid-group")
+                    outerContainer.appendChild(currContainer)
+
+
+
+                    fragment.appendChild(outerContainer)
+                }
+                const button = document.createElement("button")
+                button.innerText = "Check All"
+                button.addEventListener("click", checkAllResult)
+                fragment.appendChild(button)
+
+                captchasEl.innerHTML = "";
+                captchasEl.appendChild(fragment);
+
+            } catch (err) {
+                console.log("error while fetching boids: ", err);
+            }
+        }
+
+
+
+        async function checkAllResult(e) {
+            const forms = document.querySelectorAll(".captcha-form")
+            forms.forEach(form => {
+                const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+                form.dispatchEvent(submitEvent);
+                console.log(form)
+            })
+            // form.submit())
+        }
+
+        async function handleFormSubmit(e) {
+            e.preventDefault()
+            const { boid, captchaidentifier: captchaIdentifier } = e.target.dataset;
+            const formData = new FormData(e.target)
+            const companyShareId = companiesEl.value;
+            const userCaptcha = formData.get("userCaptcha")
+            if (userCaptcha.length != 5) {
+                console.log("invalid captcha")
+                //display invalid message TODO
+            }
+            const data = { boid, captchaIdentifier, userCaptcha, companyShareId };
+            const result = await fetchIPOResult(data);
+            console.log(result)
+            if (result.success == true) {
+                const div = document.createElement("div")
+                div.innerText = result.message;
+                div.classList.add("success-message")
+                e.target.parentElement.insertAdjacentElement("afterend", div)
+            }
+            else {
+
+            }
+        }
+
+
+        async function fetchIPOResult(data) {
+            const res = await fetch("https://iporesult.cdsc.com.np/result/result/check", {
+                "headers": {
+                    "accept": "application/json, text/plain, */*",
+                    "content-type": "application/json",
+                },
+                "referrer": "https://iporesult.cdsc.com.np/",
+                "referrerPolicy": "strict-origin-when-cross-origin",
+                "body": JSON.stringify(data),
+                "method": "POST",
+                "mode": "cors",
+            });
+            return await res.json();
+        }
+
+        async function fetchCaptcha() {
+            const _res = await fetch("https://iporesult.cdsc.com.np/result/companyShares/fileUploaded")
+            const res = await _res.json();
+            return res;
+        }
+
+
+        function updateLocalStorage() {
+            const boidText = textarea.value;
+            const boids = boidText.split("\n").reduce((acc, curr) => {
+                if (curr.trim().length == 16 && !isNaN(curr))
+                    acc.push(curr.trim())
+                return acc;
+            }, []);
+            localStorage.setItem("boids", JSON.stringify(boids))
+        }
+        function getBoids() {
+            const boidText = textarea.value;
+            const array = boidText.split("\n").reduce((acc, curr) => {
+                if (curr.trim().length == 16 && !isNaN(curr))
+                    acc.push(curr.trim())
+                return acc;
+            }, []);
+            return array;
+        }
+        async function init() {
+            const boids = localStorage.getItem("boids")
+            if (boids) {
+                parsedBoids = JSON.parse(boids).join('\n')
+                textarea.value = parsedBoids;
+            }
+
+            const res = await fetchCaptcha();
+            const companies = res.body.companyShareList.reverse();
+
+            const fragment = document.createDocumentFragment();
+            for (const company of companies) {
+                const newOption = document.createElement("option");
+                newOption.value = company.id;
+                newOption.textContent = company.name;
+                // + "(" + company.scrip + ")";
+                fragment.appendChild(newOption);
+            }
+            companiesEl.appendChild(fragment);
+            companiesEl.selecedIndex = 0;
+        }
+        init()
+    </script>
+</body>
+
+</html>
